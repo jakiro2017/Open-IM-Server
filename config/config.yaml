@@ -229,7 +229,7 @@ chatpersistencemysql: true
 #可靠性存储
 reliablestorage: false
 #消息缓存时间
-msgCacheTimeout: 3600
+msgCacheTimeout: 1800
 #群聊已读开启
 groupMessageHasReadReceiptEnable: false
 #单聊已读开启
@@ -484,6 +484,30 @@ notification:
     defaultTips:
       tips: "group member info set"
 
+  groupMemberSetToOrdinaryUser:
+    conversation:
+      reliabilityLevel: 3
+      unreadCount: false
+      offlinePush:
+        switch: false
+        title: "groupMemberSetToOrdinaryUser title"
+        desc: "groupMemberSetToOrdinaryUser desc"
+        ext: "groupMemberSetToOrdinaryUser ext"
+      defaultTips:
+        tips: "was set to ordinaryUser"
+
+  groupMemberSetToAdmin:
+    conversation:
+      reliabilityLevel: 3
+      unreadCount: false
+      offlinePush:
+        switch: false
+        title: "groupMemberSetToAdmin title"
+        desc: "groupMemberSetToAdmin desc"
+        ext: "groupMemberSetToAdmin ext"
+      defaultTips:
+        tips: "was set to admin"
+  #############################organization#################################
 
   organizationChanged:
     conversation:

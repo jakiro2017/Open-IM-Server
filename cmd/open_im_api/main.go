@@ -70,7 +70,7 @@ func main() {
 	{
 		groupRouterGroup.POST("/create_group", group.CreateGroup)                                   //1
 		groupRouterGroup.POST("/set_group_info", group.SetGroupInfo)                                //1
-		groupRouterGroup.POST("join_group", group.JoinGroup)                                        //1
+		groupRouterGroup.POST("/join_group", group.JoinGroup)                                       //1
 		groupRouterGroup.POST("/quit_group", group.QuitGroup)                                       //1
 		groupRouterGroup.POST("/group_application_response", group.ApplicationGroupResponse)        //1
 		groupRouterGroup.POST("/transfer_group", group.TransferGroupOwner)                          //1
@@ -82,8 +82,8 @@ func main() {
 		groupRouterGroup.POST("/get_group_all_member_list", group.GetGroupAllMemberList) //1
 		groupRouterGroup.POST("/get_group_members_info", group.GetGroupMembersInfo)      //1
 		groupRouterGroup.POST("/invite_user_to_group", group.InviteUserToGroup)          //1
-		groupRouterGroup.POST("/get_joined_group_list", group.GetJoinedGroupList)        //1
-		groupRouterGroup.POST("/dismiss_group", group.DismissGroup)                      //
+		groupRouterGroup.POST("/get_joined_group_list", group.GetJoinedGroupList)
+		groupRouterGroup.POST("/dismiss_group", group.DismissGroup) //
 		groupRouterGroup.POST("/mute_group_member", group.MuteGroupMember)
 		groupRouterGroup.POST("/cancel_mute_group_member", group.CancelMuteGroupMember) //MuteGroup
 		groupRouterGroup.POST("/mute_group", group.MuteGroup)
@@ -91,12 +91,18 @@ func main() {
 		groupRouterGroup.POST("/set_group_member_nickname", group.SetGroupMemberNickname)
 		groupRouterGroup.POST("/set_group_member_info", group.SetGroupMemberInfo)
 	}
+	superGroupRouterGroup := r.Group("/super_group")
+	{
+		superGroupRouterGroup.POST("/get_joined_group_list", group.GetJoinedSuperGroupList)
+		superGroupRouterGroup.POST("/get_groups_info", group.GetSuperGroupsInfo)
+	}
 	//certificate
 	authRouterGroup := r.Group("/auth")
 	{
 		authRouterGroup.POST("/user_register", apiAuth.UserRegister) //1
 		authRouterGroup.POST("/user_token", apiAuth.UserToken)       //1
 		authRouterGroup.POST("/parse_token", apiAuth.ParseToken)     //1
+		authRouterGroup.POST("/force_logout", apiAuth.ForceLogout)   //1
 	}
 	//Third service
 	thirdGroup := r.Group("/third")
@@ -117,6 +123,7 @@ func main() {
 		chatGroup.POST("/send_msg", apiChat.SendMsg)
 		chatGroup.POST("/pull_msg_by_seq", apiChat.PullMsgBySeqList)
 		chatGroup.POST("/del_msg", apiChat.DelMsg)
+		chatGroup.POST("/clear_msg", apiChat.ClearMsg)
 	}
 	//Manager
 	managementGroup := r.Group("/manager")
@@ -127,7 +134,6 @@ func main() {
 		managementGroup.POST("/get_all_users_uid", manage.GetAllUsersUid)             //1
 		managementGroup.POST("/account_check", manage.AccountCheck)                   //1
 		managementGroup.POST("/get_users_online_status", manage.GetUsersOnlineStatus) //1
-
 	}
 	//Conversation
 	conversationGroup := r.Group("/conversation")

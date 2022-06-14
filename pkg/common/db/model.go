@@ -10,7 +10,6 @@ import (
 	"fmt"
 	go_redis "github.com/go-redis/redis/v8"
 	"go.mongodb.org/mongo-driver/mongo/options"
-
 	//	"context"
 	//	"fmt"
 	"github.com/garyburd/redigo/redis"
@@ -121,6 +120,17 @@ func init() {
 		DB:       0,                              // use default DB
 		PoolSize: 100,                            // 连接池大小
 	})
+	//DB.rdb = go_redis.NewClusterClient(&go_redis.ClusterOptions{
+	//	Addrs:    []string{config.Config.Redis.DBAddress},
+	//	PoolSize: 100,
+	//	Password: config.Config.Redis.DBPassWord,
+	//})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err = DB.rdb.Ping(ctx).Result()
+	if err != nil {
+		panic(err.Error())
+	}
 }
 
 func createMongoIndex(client *mongo.Client, collection string, isUnique bool, keys ...string) error {

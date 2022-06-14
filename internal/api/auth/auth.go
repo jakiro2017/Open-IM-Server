@@ -124,3 +124,40 @@ func ParseToken(c *gin.Context) {
 	log.NewInfo(params.OperationID, "ParseToken return ", resp)
 	c.JSON(http.StatusOK, resp)
 }
+
+func ForceLogout(c *gin.Context) {
+	params := api.ForceLogoutReq{}
+	if err := c.BindJSON(&params); err != nil {
+		errMsg := " BindJSON failed " + err.Error()
+		log.NewError("0", errMsg)
+		c.JSON(http.StatusBadRequest, gin.H{"errCode": 400, "errMsg": errMsg})
+		return
+	}
+
+	req := &rpc.ForceLogoutReq{}
+	utils.CopyStructFields(req, &params)
+
+	var ok bool
+	var errInfo string
+	ok, req.OpUserID, errInfo = token_verify.GetUserIDFromToken(c.Request.Header.Get("token"), req.OperationID)
+	if !ok {
+		errMsg := req.OperationID + " " + "GetUserIDFromToken failed " + errInfo + " token:" + c.Request.Header.Get("token")
+		log.NewError(req.OperationID, errMsg)
+		c.JSON(http.StatusInternalServerError, gin.H{"errCode": 500, "errMsg": errMsg})
+		return
+	}
+
+	log.NewInfo(req.OperationID, "ForceLogout args ", req.String())
+	etcdConn := getcdv3.GetConn(config.Config.Etcd.EtcdSchema, strings.Join(config.Config.Etcd.EtcdAddr, ","), config.Config.RpcRegisterName.OpenImAuthName)
+	client := rpc.NewAuthClient(etcdConn)
+	reply, err := client.ForceLogout(context.Background(), req)
+	if err != nil {
+		errMsg := req.OperationID + " UserToken failed " + err.Error() + req.String()
+		log.NewError(req.OperationID, errMsg)
+		c.JSON(http.StatusInternalServerError, gin.H{"errCode": 500, "errMsg": errMsg})
+		return
+	}
+	resp := api.ForceLogoutResp{CommResp: api.CommResp{ErrCode: reply.CommonResp.ErrCode, ErrMsg: reply.CommonResp.ErrMsg}}
+	log.NewInfo(params.OperationID, utils.GetSelfFuncName(), " return ", resp)
+	c.JSON(http.StatusOK, resp)
+}

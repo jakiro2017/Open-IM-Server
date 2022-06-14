@@ -19,21 +19,22 @@ import (
 
 type UserConn struct {
 	*websocket.Conn
-	w *sync.Mutex
+	w            *sync.Mutex
+	PushedMaxSeq uint32
 }
 type WServer struct {
 	wsAddr       string
 	wsMaxConnNum int
 	wsUpGrader   *websocket.Upgrader
-	wsConnToUser map[*UserConn]map[string]string
-	wsUserToConn map[string]map[string]*UserConn
+	wsConnToUser map[*UserConn]map[int]string
+	wsUserToConn map[string]map[int]*UserConn
 }
 
 func (ws *WServer) onInit(wsPort int) {
 	ws.wsAddr = ":" + utils.IntToString(wsPort)
 	ws.wsMaxConnNum = config.Config.LongConnSvr.WebsocketMaxConnNum
-	ws.wsConnToUser = make(map[*UserConn]map[string]string)
-	ws.wsUserToConn = make(map[string]map[string]*UserConn)
+	ws.wsConnToUser = make(map[*UserConn]map[int]string)
+	ws.wsUserToConn = make(map[string]map[int]*UserConn)
 	ws.wsUpGrader = &websocket.Upgrader{
 		HandshakeTimeout: time.Duration(config.Config.LongConnSvr.WebsocketTimeOut) * time.Second,
 		ReadBufferSize:   config.Config.LongConnSvr.WebsocketMaxMsgLen,
@@ -60,9 +61,9 @@ func (ws *WServer) wsHandler(w http.ResponseWriter, r *http.Request) {
 			//Connection mapping relationship,
 			//userID+" "+platformID->conn
 			//Initialize a lock for each user
-			newConn := &UserConn{conn, new(sync.Mutex)}
+			newConn := &UserConn{conn, new(sync.Mutex), 0}
 			userCount++
-			ws.addUserConn(query["sendID"][0], int32(utils.StringToInt64(query["platformID"][0])), newConn, query["token"][0])
+			ws.addUserConn(query["sendID"][0], utils.StringToInt(query["platformID"][0]), newConn, query["token"][0])
 			go ws.readMsg(newConn)
 		}
 	}
@@ -138,7 +139,7 @@ func (ws *WServer) MultiTerminalLoginChecker(uid string, platformID int32, newCo
 					return
 				}
 				err = oldConn.Close()
-				delete(oldConnMap, constant.PlatformIDToName(platformID))
+				delete(oldConnMap, platformID)
 				ws.wsUserToConn[uid] = oldConnMap
 				if len(oldConnMap) == 0 {
 					delete(ws.wsUserToConn, uid)
@@ -149,7 +150,7 @@ func (ws *WServer) MultiTerminalLoginChecker(uid string, platformID int32, newCo
 				}
 
 			} else {
-				log.NewWarn(operationID, "abnormal uid-conn  ", uid, platformID, oldConnMap[constant.PlatformIDToName(platformID)])
+				log.NewWarn(operationID, "abnormal uid-conn  ", uid, platformID, oldConnMap[platformID])
 			}
 
 		} else {
@@ -179,7 +180,7 @@ func (ws *WServer) sendKickMsg(oldConn, newConn *UserConn) {
 		log.NewError(mReply.OperationID, mReply.ReqIdentifier, mReply.ErrCode, mReply.ErrMsg, "sendKickMsg WS WriteMsg error", oldConn.RemoteAddr().String(), newConn.RemoteAddr().String(), err.Error())
 	}
 }
-func (ws *WServer) addUserConn(uid string, platformID int32, conn *UserConn, token string) {
+func (ws *WServer) addUserConn(uid string, platformID int, conn *UserConn, token string) {
 	rwLock.Lock()
 	defer rwLock.Unlock()
 	operationID := utils.OperationIDGenerator()
@@ -189,21 +190,21 @@ func (ws *WServer) addUserConn(uid string, platformID int32, conn *UserConn, tok
 	}
 	ws.MultiTerminalLoginChecker(uid, platformID, conn, token, operationID)
 	if oldConnMap, ok := ws.wsUserToConn[uid]; ok {
-		oldConnMap[constant.PlatformIDToName(platformID)] = conn
+		oldConnMap[platformID] = conn
 		ws.wsUserToConn[uid] = oldConnMap
 		log.Debug(operationID, "user not first come in, add conn ", uid, platformID, conn, oldConnMap)
 	} else {
-		i := make(map[string]*UserConn)
-		i[constant.PlatformIDToName(platformID)] = conn
+		i := make(map[int]*UserConn)
+		i[platformID] = conn
 		ws.wsUserToConn[uid] = i
 		log.Debug(operationID, "user first come in, new user, conn", uid, platformID, conn, ws.wsUserToConn[uid])
 	}
 	if oldStringMap, ok := ws.wsConnToUser[conn]; ok {
-		oldStringMap[constant.PlatformIDToName(platformID)] = uid
+		oldStringMap[platformID] = uid
 		ws.wsConnToUser[conn] = oldStringMap
 	} else {
-		i := make(map[string]string)
-		i[constant.PlatformIDToName(platformID)] = uid
+		i := make(map[int]string)
+		i[platformID] = uid
 		ws.wsConnToUser[conn] = i
 	}
 	count := 0
@@ -217,7 +218,8 @@ func (ws *WServer) delUserConn(conn *UserConn) {
 	rwLock.Lock()
 	defer rwLock.Unlock()
 	operationID := utils.OperationIDGenerator()
-	var platform, uid string
+	var uid string
+	var platform int
 	if oldStringMap, ok := ws.wsConnToUser[conn]; ok {
 		for k, v := range oldStringMap {
 			platform = k
@@ -250,7 +252,7 @@ func (ws *WServer) delUserConn(conn *UserConn) {
 	}
 }
 
-func (ws *WServer) getUserConn(uid string, platform string) *UserConn {
+func (ws *WServer) getUserConn(uid string, platform int) *UserConn {
 	rwLock.RLock()
 	defer rwLock.RUnlock()
 	if connMap, ok := ws.wsUserToConn[uid]; ok {
@@ -260,7 +262,7 @@ func (ws *WServer) getUserConn(uid string, platform string) *UserConn {
 	}
 	return nil
 }
-func (ws *WServer) getSingleUserAllConn(uid string) map[string]*UserConn {
+func (ws *WServer) getUserAllCons(uid string) map[int]*UserConn {
 	rwLock.RLock()
 	defer rwLock.RUnlock()
 	if connMap, ok := ws.wsUserToConn[uid]; ok {
@@ -268,7 +270,8 @@ func (ws *WServer) getSingleUserAllConn(uid string) map[string]*UserConn {
 	}
 	return nil
 }
-func (ws *WServer) getUserUid(conn *UserConn) (uid, platform string) {
+
+func (ws *WServer) getUserUid(conn *UserConn) (uid string, platform int) {
 	rwLock.RLock()
 	defer rwLock.RUnlock()
 
@@ -279,7 +282,7 @@ func (ws *WServer) getUserUid(conn *UserConn) (uid, platform string) {
 		}
 		return uid, platform
 	}
-	return "", ""
+	return "", 0
 }
 func (ws *WServer) headerCheck(w http.ResponseWriter, r *http.Request) bool {
 	status := http.StatusUnauthorized
@@ -307,7 +310,4 @@ func (ws *WServer) headerCheck(w http.ResponseWriter, r *http.Request) bool {
 		http.Error(w, http.StatusText(status), status)
 		return false
 	}
-}
-func genMapKey(uid string, platformID int32) string {
-	return uid + " " + constant.PlatformIDToName(platformID)
 }

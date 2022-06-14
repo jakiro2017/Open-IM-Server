@@ -22,10 +22,10 @@ import (
 )
 
 type MsgChannelValue struct {
-	userID    string
-	triggerID string
-	msgList   []*pbMsg.MsgDataToMQ
-	lastSeq   uint64
+	aggregationID string //maybe userID or super groupID
+	triggerID     string
+	msgList       []*pbMsg.MsgDataToMQ
+	lastSeq       uint64
 }
 type TriggerChannelValue struct {
 	triggerID string
@@ -98,28 +98,25 @@ func (och *OnlineHistoryConsumerHandler) Run(channelID int) {
 		select {
 		case cmd := <-och.chArrays[channelID]:
 			switch cmd.Cmd {
-			case UserMessages:
+			case AggregationMessages:
 				msgChannelValue := cmd.Value.(MsgChannelValue)
 				msgList := msgChannelValue.msgList
 				triggerID := msgChannelValue.triggerID
 				storageMsgList := make([]*pbMsg.MsgDataToMQ, 0, 80)
-				notStoragepushMsgList := make([]*pbMsg.MsgDataToMQ, 0, 80)
-				log.Debug(triggerID, "msg arrived channel", "channel id", channelID, msgList, msgChannelValue.userID, len(msgList))
+				notStoragePushMsgList := make([]*pbMsg.MsgDataToMQ, 0, 80)
+				log.Debug(triggerID, "msg arrived channel", "channel id", channelID, msgList, msgChannelValue.aggregationID, len(msgList))
 				for _, v := range msgList {
 					log.Debug(triggerID, "msg come to storage center", v.String())
-					if v.MsgData == nil {
-						log.NewWarn(triggerID, "msg come to storage center nil", v.String(), v.OperationID, msgChannelValue.userID)
-						continue
-					}
 					isHistory := utils.GetSwitchFromOptions(v.MsgData.Options, constant.IsHistory)
 					isSenderSync := utils.GetSwitchFromOptions(v.MsgData.Options, constant.IsSenderSync)
 					if isHistory {
 						storageMsgList = append(storageMsgList, v)
 						//log.NewWarn(triggerID, "storageMsgList to mongodb  client msgID: ", v.MsgData.ClientMsgID)
 					} else {
-						if !(!isSenderSync && msgChannelValue.userID == v.MsgData.SendID) {
-							notStoragepushMsgList = append(notStoragepushMsgList, v)
+						if !(!isSenderSync && msgChannelValue.aggregationID == v.MsgData.SendID) {
+							notStoragePushMsgList = append(notStoragePushMsgList, v)
 						}
+
 					}
 
 				}
@@ -132,8 +129,8 @@ func (och *OnlineHistoryConsumerHandler) Run(channelID int) {
 				//	log.NewError(msgFromMQ.OperationID, "SessionType error", msgFromMQ.String())
 				//	return
 				//}
-				log.Debug(triggerID, "msg storage length", len(storageMsgList), "push length", len(notStoragepushMsgList))
-				err, lastSeq := saveUserChatList(msgChannelValue.userID, storageMsgList, triggerID)
+				log.Debug(triggerID, "msg storage length", len(storageMsgList), "push length", len(notStoragePushMsgList))
+				err, lastSeq := saveUserChatList(msgChannelValue.aggregationID, storageMsgList, triggerID)
 				if err != nil {
 					singleMsgFailedCount += uint64(len(storageMsgList))
 					log.NewError(triggerID, "single data insert to redis err", err.Error(), storageMsgList)
@@ -141,28 +138,28 @@ func (och *OnlineHistoryConsumerHandler) Run(channelID int) {
 					singleMsgSuccessCountMutex.Lock()
 					singleMsgSuccessCount += uint64(len(storageMsgList))
 					singleMsgSuccessCountMutex.Unlock()
-					och.SendMessageToMongoCH(msgChannelValue.userID, triggerID, storageMsgList, lastSeq)
+					och.SendMessageToMongoCH(msgChannelValue.aggregationID, triggerID, storageMsgList, lastSeq)
 					go func(push, storage []*pbMsg.MsgDataToMQ) {
 						for _, v := range storage {
-							sendMessageToPush(v, msgChannelValue.userID)
+							sendMessageToPush(v, msgChannelValue.aggregationID)
 						}
 						for _, x := range push {
-							sendMessageToPush(x, msgChannelValue.userID)
+							sendMessageToPush(x, msgChannelValue.aggregationID)
 						}
 
-					}(notStoragepushMsgList, storageMsgList)
+					}(notStoragePushMsgList, storageMsgList)
 
 				}
 			}
 		}
 	}
 }
-func (och *OnlineHistoryConsumerHandler) SendMessageToMongoCH(userID string, triggerID string, messages []*pbMsg.MsgDataToMQ, lastSeq uint64) {
-	hashCode := getHashCode(userID)
+func (och *OnlineHistoryConsumerHandler) SendMessageToMongoCH(aggregationID string, triggerID string, messages []*pbMsg.MsgDataToMQ, lastSeq uint64) {
+	hashCode := getHashCode(aggregationID)
 	channelID := hashCode % ChannelNum
-	log.Debug(triggerID, "generate channelID", hashCode, channelID, userID)
+	log.Debug(triggerID, "generate channelID", hashCode, channelID, aggregationID)
 	//go func(cID uint32, userID string, messages []*pbMsg.MsgDataToMQ) {
-	och.chMongoArrays[channelID] <- Cmd2Value{Cmd: MongoMessages, Value: MsgChannelValue{userID: userID, msgList: messages, triggerID: triggerID, lastSeq: lastSeq}}
+	och.chMongoArrays[channelID] <- Cmd2Value{Cmd: MongoMessages, Value: MsgChannelValue{aggregationID: aggregationID, msgList: messages, triggerID: triggerID, lastSeq: lastSeq}}
 }
 func (och *OnlineHistoryConsumerHandler) MongoMessageRun(channelID int) {
 	for {
@@ -173,9 +170,9 @@ func (och *OnlineHistoryConsumerHandler) MongoMessageRun(channelID int) {
 				msgChannelValue := cmd.Value.(MsgChannelValue)
 				msgList := msgChannelValue.msgList
 				triggerID := msgChannelValue.triggerID
-				userID := msgChannelValue.userID
+				aggregationID := msgChannelValue.aggregationID
 				lastSeq := msgChannelValue.lastSeq
-				err := db.DB.BatchInsertChat2DB(userID, msgList, triggerID, lastSeq)
+				err := db.DB.BatchInsertChat2DB(aggregationID, msgList, triggerID, lastSeq)
 				if err != nil {
 					log.NewError(triggerID, "single data insert to mongo err", err.Error(), msgList)
 				}
@@ -206,7 +203,7 @@ func (och *OnlineHistoryConsumerHandler) MongoMessageRun(channelID int) {
 
 func (och *OnlineHistoryConsumerHandler) MessagesDistributionHandle() {
 	for {
-		UserAggregationMsgs := make(map[string][]*pbMsg.MsgDataToMQ, ChannelNum)
+		aggregationMsgs := make(map[string][]*pbMsg.MsgDataToMQ, ChannelNum)
 		select {
 		case cmd := <-och.msgDistributionCh:
 			switch cmd.Cmd {
@@ -223,27 +220,24 @@ func (och *OnlineHistoryConsumerHandler) MessagesDistributionHandle() {
 						log.Error(triggerID, "msg_transfer Unmarshal msg err", "msg", string(consumerMessages[i].Value), "err", err.Error())
 						return
 					}
-					log.Debug(triggerID, "single msg come to distribution center", string(consumerMessages[i].Key))
-					if oldM, ok := UserAggregationMsgs[string(consumerMessages[i].Key)]; ok {
+					log.Debug(triggerID, "single msg come to distribution center", msgFromMQ.String(), string(consumerMessages[i].Key))
+					if oldM, ok := aggregationMsgs[string(consumerMessages[i].Key)]; ok {
 						oldM = append(oldM, &msgFromMQ)
-						UserAggregationMsgs[string(consumerMessages[i].Key)] = oldM
+						aggregationMsgs[string(consumerMessages[i].Key)] = oldM
 					} else {
 						m := make([]*pbMsg.MsgDataToMQ, 0, 100)
 						m = append(m, &msgFromMQ)
-						UserAggregationMsgs[string(consumerMessages[i].Key)] = m
+						aggregationMsgs[string(consumerMessages[i].Key)] = m
 					}
 				}
-				log.Debug(triggerID, "generate map list users len", len(UserAggregationMsgs), UserAggregationMsgs)
-				for userID, v := range UserAggregationMsgs {
+				log.Debug(triggerID, "generate map list users len", len(aggregationMsgs))
+				for aggregationID, v := range aggregationMsgs {
 					if len(v) >= 0 {
-						hashCode := getHashCode(userID)
+						hashCode := getHashCode(aggregationID)
 						channelID := hashCode % ChannelNum
-						log.Debug(triggerID, "generate channelID", hashCode, channelID, userID, len(v))
-						for _, y := range v {
-							log.Debug(triggerID, "single user slice is ", y.String())
-						}
+						log.Debug(triggerID, "generate channelID", hashCode, channelID, aggregationID)
 						//go func(cID uint32, userID string, messages []*pbMsg.MsgDataToMQ) {
-						och.chArrays[channelID] <- Cmd2Value{Cmd: UserMessages, Value: MsgChannelValue{userID: userID, msgList: v, triggerID: triggerID}}
+						och.chArrays[channelID] <- Cmd2Value{Cmd: AggregationMessages, Value: MsgChannelValue{aggregationID: aggregationID, msgList: v, triggerID: triggerID}}
 						//}(channelID, userID, v)
 					}
 				}

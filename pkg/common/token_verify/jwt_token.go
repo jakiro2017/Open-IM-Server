@@ -37,7 +37,26 @@ func BuildClaims(uid, platform string, ttl int64) Claims {
 		}}
 }
 
-func CreateToken(userID string, platformID int32) (string, int64, error) {
+func DeleteToken(userID string, platformID int) error {
+	m, err := commonDB.DB.GetTokenMapByUidPid(userID, constant.PlatformIDToName(platformID))
+	if err != nil && err != redis.ErrNil {
+		return utils.Wrap(err, "")
+	}
+	var deleteTokenKey []string
+	for k, v := range m {
+		_, err = GetClaimFromToken(k)
+		if err != nil || v != constant.NormalToken {
+			deleteTokenKey = append(deleteTokenKey, k)
+		}
+	}
+	if len(deleteTokenKey) != 0 {
+		err = commonDB.DB.DeleteTokenByUidPid(userID, platformID, deleteTokenKey)
+		return utils.Wrap(err, "")
+	}
+	return nil
+}
+
+func CreateToken(userID string, platformID int) (string, int64, error) {
 	claims := BuildClaims(userID, constant.PlatformIDToName(platformID), config.Config.TokenPolicy.AccessExpire)
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString([]byte(config.Config.TokenPolicy.AccessSecret))
@@ -233,7 +252,7 @@ func WsVerifyToken(token, uid string, platformID string, operationID string) (bo
 	if claims.UID != uid {
 		return false, utils.Wrap(&constant.ErrTokenUnknown, "uid is not same to token uid"), "uid is not same to token uid"
 	}
-	if claims.Platform != constant.PlatformIDToName(utils.StringToInt32(platformID)) {
+	if claims.Platform != constant.PlatformIDToName(utils.StringToInt(platformID)) {
 		return false, utils.Wrap(&constant.ErrTokenUnknown, "platform is not same to token platform"), "platform is not same to token platform"
 	}
 	log.NewDebug(operationID, utils.GetSelfFuncName(), " check ok ", claims.UID, uid, claims.Platform)
