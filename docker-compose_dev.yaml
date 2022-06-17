@@ -95,15 +95,17 @@ services:
     # image: openim/open_im_server:v2.0.10
     build:
       context: .
-      dockerfile: deploy.Dockerfile
+      dockerfile: deploy_dev.Dockerfile
+    security_opt:
+      - seccomp:unconfined
 
     container_name: open_im_server
     volumes:
+      - ./:/src
       - ./logs:/Open-IM-Server/logs
       - ./config/config.yaml:/Open-IM-Server/config/config.yaml
       - ./db/sdk:/Open-IM-Server/db/sdk
       - ./script:/Open-IM-Server/script
-      - ./:/src
     restart: always
     depends_on:
       - kafka
